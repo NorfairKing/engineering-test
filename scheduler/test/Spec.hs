@@ -27,7 +27,7 @@ main = sydTest $ describe "runScheduler" $ do
     hClose toH
     run
     contents <- SB.hGetContents fromH
-    contents `shouldBe` "job starting: example\njob done: example\ndone\n"
+    contents `shouldBe` "job starting: example\njob running: example\njob done: example\ndone\n"
 
 -- Read all elements from a chan.
 -- This uses a timeout to sense when the chance is empty, so it can only be

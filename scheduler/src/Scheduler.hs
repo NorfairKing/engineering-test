@@ -9,6 +9,7 @@ module Scheduler
 where
 
 import Conduit
+import Control.Monad
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as SB8
 import qualified Data.Conduit.Combinators as C
@@ -82,6 +83,7 @@ renderResponse :: Response -> ByteString
 renderResponse = \case
   ResponseJobStarting jobId -> "job starting: " <> jobId
   ResponseJobDone jobId -> "job done: " <> jobId
+  ResponseJobRunning jobId -> "job running: " <> jobId
   ResponseDone -> "done"
 
 schedulerWorker :: Chan Request -> Chan Response -> IO ()
@@ -131,7 +133,10 @@ runJob responseChan jobId taskType = do
         TaskTypeSquirrel -> runSquirrel
         TaskTypeUnicorn -> runUnicorn
   respond $ ResponseJobStarting jobId
-  jobAction
+  let jobStatusThread = forever $ do
+        threadDelay 100_000
+        respond $ ResponseJobRunning jobId
+  race_ jobAction jobStatusThread
   respond $ ResponseJobDone jobId
   where
     respond = writeChan responseChan
@@ -168,6 +173,7 @@ runUnicorn = threadDelay 300_000
 
 data Response
   = ResponseJobStarting !JobId
+  | ResponseJobRunning !JobId
   | ResponseJobDone !JobId
   | ResponseDone
   deriving (Show, Eq)
