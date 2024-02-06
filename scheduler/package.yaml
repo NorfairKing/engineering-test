@@ -35,6 +35,10 @@ ghc-options:
 
 library:
   source-dirs: src
+  dependencies:
+  - bytestring
+  - conduit
+  - unliftio
 
 executables:
   scheduler-exe:
@@ -56,4 +60,9 @@ tests:
     - -rtsopts
     - -with-rtsopts=-N
     dependencies:
+    - bytestring
+    - process
     - scheduler
+    - sydtest
+    - timeout
+    - unliftio
