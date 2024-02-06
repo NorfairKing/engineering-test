@@ -23,12 +23,12 @@ main = sydTest $ describe "runScheduler" $ do
     (inH, toH) <- createPipe
     (fromH, outH) <- createPipe
     let run = runScheduler inH outH
-    SB.hPut toH "start example\n"
+    SB.hPut toH "start example bubble\n"
     hFlush toH
     hClose toH
     run
     contents <- SB.hGetContents fromH
-    contents `shouldBe` "starting example\ndone\n"
+    contents `shouldBe` "job starting: example\njob done: example\ndone\n"
 
 -- Read all elements from a chan.
 -- This uses a timeout to sense when the chance is empty, so it can only be

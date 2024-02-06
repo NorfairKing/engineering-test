@@ -1,4 +1,5 @@
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE NumericUnderscores #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Scheduler
@@ -11,8 +12,11 @@ import Conduit
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Char8 as SB8
 import qualified Data.Conduit.Combinators as C
+import Data.Foldable
+import qualified Data.Map as M
 import System.IO
 import UnliftIO
+import UnliftIO.Concurrent
 
 -- |
 --
@@ -57,7 +61,9 @@ parseRequestsConduit requestChan = C.linesUnboundedAscii .| go
 
 parseRequest :: ByteString -> Maybe Request
 parseRequest sb = case SB8.words sb of
-  ["start", identifier] -> Just $ RequestStart identifier
+  ["start", identifier, typeStr] -> do
+    taskType <- parseTaskType typeStr
+    pure $ RequestStart identifier taskType
   _ -> Nothing
 
 renderResponsesConduit :: Chan Response -> ConduitT () ByteString IO ()
@@ -65,36 +71,92 @@ renderResponsesConduit responseChan = go .| C.unlinesAscii
   where
     go = do
       response <- readChan responseChan
-      yield $ renderResponse response
+      Conduit.yield $ renderResponse response
       if response == ResponseDone
         then pure ()
         else go
 
 renderResponse :: Response -> ByteString
 renderResponse = \case
-  ResponseStarting jobId -> "starting " <> jobId
+  ResponseJobStarting jobId -> "job starting: " <> jobId
+  ResponseJobDone jobId -> "job done: " <> jobId
   ResponseDone -> "done"
 
 schedulerWorker :: Chan Request -> Chan Response -> IO ()
-schedulerWorker requestChan responseChan = go
+schedulerWorker requestChan responseChan = do
+  let respond = writeChan responseChan
+  jobsMapVar <- newTVarIO M.empty
+  let go = do
+        request <- readChan requestChan
+        case request of
+          RequestDone -> do
+            -- Done receiving inputs
+            -- Wait for all jobs to finish
+            jobs <- readTVarIO jobsMapVar
+            for_ jobs wait
+            -- Send the last response
+            respond ResponseDone
+          RequestStart jobId taskType -> do
+            -- FIXME If there are colliding job identifiers then the second
+            -- will override the first in the map.
+            -- This will make it impossible to cancel the first.
+            -- We could send back an error instead.
+            let recordJob threadId = atomically $ modifyTVar' jobsMapVar (M.insert jobId threadId)
+            let unrecordJob = atomically $ modifyTVar' jobsMapVar (M.delete jobId)
+            let jobThread = do
+                  runJob responseChan jobId taskType
+                    `finally` unrecordJob
+            withAsync jobThread $ \jobThreadId -> do
+              -- FIXME: There's a space leak issue because of a race condition
+              -- in which it could be that the job finishes and is removed
+              -- before it can be recorded in the jobs map.
+              recordJob jobThreadId
+              go
+  go
+
+runJob :: Chan Response -> JobId -> TaskType -> IO ()
+runJob responseChan jobId taskType = do
+  let jobAction = case taskType of
+        TaskTypeBubble -> runBubble
+        TaskTypeSquirrel -> runSquirrel
+        TaskTypeUnicorn -> runUnicorn
+  respond $ ResponseJobStarting jobId
+  jobAction
+  respond $ ResponseJobDone jobId
   where
     respond = writeChan responseChan
-    go = do
-      request <- readChan requestChan
-      case request of
-        RequestDone -> respond ResponseDone
-        RequestStart jobId -> do
-          respond $ ResponseStarting jobId
-          go
-
-type JobId = ByteString
 
 data Request
-  = RequestStart JobId
+  = RequestStart !JobId !TaskType
   | RequestDone
   deriving (Show, Eq)
 
+type JobId = ByteString
+
+data TaskType
+  = TaskTypeBubble
+  | TaskTypeSquirrel
+  | TaskTypeUnicorn
+  deriving (Show, Eq)
+
+parseTaskType :: ByteString -> Maybe TaskType
+parseTaskType = \case
+  "bubble" -> Just TaskTypeBubble
+  "squirrel" -> Just TaskTypeSquirrel
+  "unicorn" -> Just TaskTypeUnicorn
+  _ -> Nothing
+
+runBubble :: IO ()
+runBubble = threadDelay 100_000
+
+runSquirrel :: IO ()
+runSquirrel = threadDelay 200_000
+
+runUnicorn :: IO ()
+runUnicorn = threadDelay 300_000
+
 data Response
-  = ResponseStarting JobId
+  = ResponseJobStarting !JobId
+  | ResponseJobDone !JobId
   | ResponseDone
   deriving (Show, Eq)
