@@ -7,7 +7,7 @@ with final.haskell.lib;
     overrides = composeExtensions (old.overrides or (_: _: { })) (
       self: super:
         {
-          scheduler = self.generateOptparseApplicativeCompletions [ "scheduler" ] (buildStrictly (self.callPackage ../scheduler { }));
+          scheduler = buildStrictly (self.callPackage ../scheduler { });
           timeout = dontCheck (unmarkBroken super.timeout);
         }
     );

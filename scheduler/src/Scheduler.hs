@@ -22,11 +22,6 @@ import Text.Read
 import UnliftIO
 import UnliftIO.Concurrent
 
--- |
---
--- Things to reconsider:
--- * Input/output format is text, we may want to use lines of JSON instead, or
---   even a binary protocol, depending on the usecase
 main :: IO ()
 main = do
   args <- getArgs
@@ -41,6 +36,9 @@ main = do
 -- rendered as output lines.
 -- The worker will handle requests one by one and will asynchronously send
 -- responses down the response channel.
+--
+-- Input/output format is text, we may want to use lines of JSON instead, or
+-- even a binary protocol, depending on the usecase
 runScheduler :: Maybe Int -> Handle -> Handle -> IO ()
 runScheduler mMaxJobs inH outH = do
   requestChan <- newChan
@@ -65,9 +63,9 @@ parseRequestsConduit requestChan = C.linesUnboundedAscii .| go
       case mNext of
         Nothing -> writeChan requestChan RequestDone
         Just req -> do
-          case parseRequest req of
-            Just request -> writeChan requestChan request
-            Nothing -> liftIO $ putStrLn $ "Unknown request: " <> show req
+          -- FIXME: Here we ignore invalid requests.
+          -- We could instead send an error back.
+          traverse_ (writeChan requestChan) (parseRequest req)
           go
 
 parseRequest :: ByteString -> Maybe Request
@@ -83,6 +81,8 @@ renderResponsesConduit :: Chan Response -> ConduitT () ByteString IO ()
 renderResponsesConduit responseChan = go .| C.unlinesAscii
   where
     go = do
+      -- Note that this will keep blocking on 'readChan' if the scheduler never
+      -- sends a ResponseDone.
       response <- readChan responseChan
       Conduit.yield $ renderResponse response
       if response == ResponseDone
@@ -152,11 +152,17 @@ runJob responseChan jobId taskType = do
         TaskTypeBubble -> runBubble
         TaskTypeSquirrel -> runSquirrel
         TaskTypeUnicorn -> runUnicorn
+
+  -- Mention that the job is starting
   respond $ ResponseJobStarting jobId
+  -- Run the job at the same time as sending periodic status updates
   let jobStatusThread = forever $ do
         threadDelay 100_000
         respond $ ResponseJobRunning jobId
+  -- jobStatusThread uses 'forever', so this will only run as long as jobAction
+  -- does.
   race_ jobAction jobStatusThread
+  -- Mention that the job is done
   respond $ ResponseJobDone jobId
   where
     respond = writeChan responseChan

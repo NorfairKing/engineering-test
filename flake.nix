@@ -26,6 +26,7 @@
       overlays.${system} = import ./nix/overlay.nix;
       packages.${system}.default = pkgs.scheduler;
       checks.${system} = {
+        release = self.packages.${system}.default;
         pre-commit = pre-commit-hooks.lib.${system}.run {
           src = ./.;
           hooks = {
