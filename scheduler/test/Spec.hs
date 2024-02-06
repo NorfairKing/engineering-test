@@ -15,14 +15,14 @@ main = sydTest $ describe "runScheduler" $ do
   it "can run and wait for any input" $ do
     (inH, _) <- createPipe
     (_, outH) <- createPipe
-    let run = runScheduler inH outH
+    let run = runScheduler Nothing inH outH
     result <- race run (threadDelay 100_000)
     result `shouldBe` Right ()
 
   it "can schedule a single job and wait for it to finish" $ do
     (inH, toH) <- createPipe
     (fromH, outH) <- createPipe
-    let run = runScheduler inH outH
+    let run = runScheduler Nothing inH outH
     SB.hPut toH "start example bubble\n"
     hClose toH
     run
