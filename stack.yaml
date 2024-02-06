@@ -1,0 +1,7 @@
+resolver: lts-21.22
+packages:
+- scheduler
+system-ghc: true
+nix:
+  enable: false
+with-hpack: hpack
