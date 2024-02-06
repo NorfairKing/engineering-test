@@ -92,8 +92,9 @@ renderResponsesConduit responseChan = go .| C.unlinesAscii
 renderResponse :: Response -> ByteString
 renderResponse = \case
   ResponseJobStarting jobId -> "job starting: " <> jobId
-  ResponseJobDone jobId -> "job done: " <> jobId
   ResponseJobRunning jobId -> "job running: " <> jobId
+  ResponseJobDone jobId -> "job done: " <> jobId
+  ResponseJobCancelled jobId -> "job cancelled: " <> jobId
   ResponseDone -> "done"
 
 schedulerWorker :: Maybe Int -> Chan Request -> Chan Response -> IO ()
@@ -137,7 +138,9 @@ schedulerWorker mMaxJobs requestChan responseChan = do
             mJobThreadId <- M.lookup jobId <$> readTVarIO jobsMapVar
             -- FIXME: This will ignore cancel requests for unknown jobs
             -- We could respond with an error instead
-            traverse_ cancel mJobThreadId
+            for_ mJobThreadId $ \jobThreadId -> do
+              cancel jobThreadId
+              respond $ ResponseJobCancelled jobId
             -- We don't need to unrecord the job here because we use `finally`
             -- in the job thread to do that.
             go
@@ -180,17 +183,18 @@ parseTaskType = \case
   _ -> Nothing
 
 runBubble :: IO ()
-runBubble = threadDelay 100_000
+runBubble = threadDelay 1_000_000
 
 runSquirrel :: IO ()
-runSquirrel = threadDelay 200_000
+runSquirrel = threadDelay 2_000_000
 
 runUnicorn :: IO ()
-runUnicorn = threadDelay 300_000
+runUnicorn = threadDelay 3_000_000
 
 data Response
   = ResponseJobStarting !JobId
   | ResponseJobRunning !JobId
+  | ResponseJobCancelled !JobId
   | ResponseJobDone !JobId
   | ResponseDone
   deriving (Show, Eq)

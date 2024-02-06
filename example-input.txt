@@ -1,0 +1,4 @@
+start 1 bubble
+start 2 squirrel
+start 3 unicorn
+cancel 2
