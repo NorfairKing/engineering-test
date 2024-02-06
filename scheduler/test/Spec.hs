@@ -24,7 +24,6 @@ main = sydTest $ describe "runScheduler" $ do
     (fromH, outH) <- createPipe
     let run = runScheduler inH outH
     SB.hPut toH "start example bubble\n"
-    hFlush toH
     hClose toH
     run
     contents <- SB.hGetContents fromH

@@ -64,6 +64,8 @@ parseRequest sb = case SB8.words sb of
   ["start", identifier, typeStr] -> do
     taskType <- parseTaskType typeStr
     pure $ RequestStart identifier taskType
+  ["cancel", identifier] -> do
+    pure $ RequestCancel identifier
   _ -> Nothing
 
 renderResponsesConduit :: Chan Response -> ConduitT () ByteString IO ()
@@ -93,7 +95,7 @@ schedulerWorker requestChan responseChan = do
             -- Done receiving inputs
             -- Wait for all jobs to finish
             jobs <- readTVarIO jobsMapVar
-            for_ jobs wait
+            traverse_ wait jobs
             -- Send the last response
             respond ResponseDone
           RequestStart jobId taskType -> do
@@ -112,6 +114,14 @@ schedulerWorker requestChan responseChan = do
               -- before it can be recorded in the jobs map.
               recordJob jobThreadId
               go
+          RequestCancel jobId -> do
+            mJobThreadId <- M.lookup jobId <$> readTVarIO jobsMapVar
+            -- FIXME: This will ignore cancel requests for unknown jobs
+            -- We could respond with an error instead
+            traverse_ cancel mJobThreadId
+            -- We don't need to unrecord the job here because we use `finally`
+            -- in the job thread to do that.
+            go
   go
 
 runJob :: Chan Response -> JobId -> TaskType -> IO ()
@@ -128,6 +138,7 @@ runJob responseChan jobId taskType = do
 
 data Request
   = RequestStart !JobId !TaskType
+  | RequestCancel !JobId
   | RequestDone
   deriving (Show, Eq)
 
